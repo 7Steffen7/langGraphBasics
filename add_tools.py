@@ -1,20 +1,20 @@
 from typing import Annotated, TypedDict
 
 from langchain_tavily import TavilySearch
+from langgraph.graph import StateGraph, START, END
+from langgraph.graph.message import  add_messages
+from langchain.chat_models import init_chat_model
+from langgraph.prebuilt import ToolNode, tools_condition
+
 from dotenv import load_dotenv
+
 load_dotenv()
 
 tool = TavilySearch(max_results=2)
 tools = [tool]
 tool.invoke("What's a 'node' in  LangGraph?")
 
-from langchain.chat_models import init_chat_model
-
 llm = init_chat_model("openai:gpt-4.1-nano", base_url="https://openrouter.ai/api/v1")
-
-
-from langgraph.graph import StateGraph, START, END
-from langgraph.graph.message import  add_messages
 
 class State(TypedDict):
     messages: Annotated[list, add_messages]
@@ -30,12 +30,49 @@ def chatbot(state: State):
 
 graph_builder.add_node("chatbot", chatbot)
 
-import json
+tool_node = ToolNode(tools=[tool])
+graph_builder.add_node("tools", tool_node)
 
-from langchain_core.messages import ToolMessage
+graph_builder.add_conditional_edges(
+    "chatbot",
+    tools_condition,
+)
 
-from langgraph.prebuilt import ToolNode, tools_condition
+graph_builder.add_edge("tools", "chatbot")
+graph_builder.add_edge(START, "chatbot")
+graph = graph_builder.compile()
 
+try:
+    png_bytes = graph.get_graph().draw_mermaid_png()
+    with open("graph.png", "wb") as f:
+        f.write(png_bytes)
+except Exception as e:
+    print(f"Could not generate graph image: {e}")
+
+def stream_graph_updates(user_input: str):
+    for event in graph.stream({"messages": [{"role": "user", "content": user_input}]}):
+        for value in event.values():
+            print("Assistent: ", value["messages"][-1].content)
+
+while True:
+    try:
+        user_input = input("User: ")
+        if user_input.lower() in ["quit", "exit", "q"]:
+            print("Goodbye!")
+            break
+
+        stream_graph_updates(user_input)
+    except:
+        # fallback if input() is not available
+        user_input = "What do you know about LangGraph?"
+        print("User: " + user_input)
+        stream_graph_updates(user_input)
+        break
+
+
+# import json
+
+# from langchain_core.messages import ToolMessage
 
 # class BasicToolNode:
 #     """A node that runs the tools requested in the last AIMessage."""
@@ -64,32 +101,6 @@ from langgraph.prebuilt import ToolNode, tools_condition
 
 # tool_node = BasicToolNode(tools=[tool])
 
-tool_node = ToolNode(tools=[tool])
-graph_builder.add_node("tools", tool_node)
-
-
-def route_tools(
-        state: State,
-):
-    """
-    Use in the conditional_edge to route to the ToolNode if the last message
-    has tool calls. Otherwise, route to the end.
-    """
-    if isinstance(state, list):
-        ai_message = state[-1]
-    elif messages := state.get("messages", []):
-        ai_message = messages[-1]
-    else:
-        raise ValueError("No message found in input state to tool_edge: {state}")
-    if hasattr(ai_message, "tool_calls") and len(ai_message.tool_calls) > 0:
-        return "tools"
-    return END
-
-graph_builder.add_conditional_edges(
-    "chatbot",
-    tools_condition,
-)
-
 # The `tools_condition` function returns "tools" if the chatbot asks to use a tool, and "END" if
 # it is fine directly responding. This conditional routing defines the main agent loop.
 # graph_builder.add_conditional_edges(
@@ -103,27 +114,21 @@ graph_builder.add_conditional_edges(
 #     {"tools": "tools", END: END},
 # )
 # Any time a tool is called, we return to the chatbot to decide the next step
-graph_builder.add_edge("tools", "chatbot")
-graph_builder.add_edge(START, "chatbot")
-graph = graph_builder.compile()
 
-def stream_graph_updates(user_input: str):
-    for event in graph.stream({"messages": [{"role": "user", "content": user_input}]}):
-        for value in event.values():
-            print("Assistent: ", value["messages"][-1].content)
 
-while True:
-    try:
-        user_input = input("User: ")
-        if user_input.lower() in ["quit", "exit", "q"]:
-            print("Goodbye!")
-            break
-
-        stream_graph_updates(user_input)
-    except:
-        # fallback if input() is not available
-        user_input = "What do you know about LangGraph?"
-        print("User: " + user_input)
-        stream_graph_updates(user_input)
-        break
-
+# def route_tools(
+#         state: State,
+# ):
+#     """
+#     Use in the conditional_edge to route to the ToolNode if the last message
+#     has tool calls. Otherwise, route to the end.
+#     """
+#     if isinstance(state, list):
+#         ai_message = state[-1]
+#     elif messages := state.get("messages", []):
+#         ai_message = messages[-1]
+#     else:
+#         raise ValueError("No message found in input state to tool_edge: {state}")
+#     if hasattr(ai_message, "tool_calls") and len(ai_message.tool_calls) > 0:
+#         return "tools"
+#     return END

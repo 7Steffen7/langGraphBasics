@@ -2,8 +2,11 @@ from typing import Annotated, TypedDict
 
 from langgraph.graph import StateGraph, START
 from langgraph.graph.message import add_messages
-# from openai import base_url
+from langchain.chat_models import init_chat_model
 
+from dotenv import load_dotenv
+
+load_dotenv()
 
 class State(TypedDict):
     # Messages have the type "list". The `add_messages` function
@@ -13,10 +16,7 @@ class State(TypedDict):
 
 graph_builder = StateGraph(State)
 
-from dotenv import load_dotenv
-load_dotenv()
 
-from langchain.chat_models import init_chat_model
 
 llm = init_chat_model('openai:gpt-4.1-nano', base_url="https://openrouter.ai/api/v1")
 
@@ -32,6 +32,13 @@ graph_builder.add_node("chatbot", chatbot)
 graph_builder.add_edge(START, "chatbot")
 
 graph = graph_builder.compile()
+
+try:
+    png_bytes = graph.get_graph().draw_mermaid_png()
+    with open("graph.png", "wb") as f:
+        f.write(png_bytes)
+except Exception as e:
+    print(f"Could not generate graph image: {e}")
 
 def stream_graph_updates(user_input: str):
     for event in graph.stream({"messages": [{"role": "user", "content": user_input}]}):
